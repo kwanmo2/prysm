@@ -1,0 +1,36 @@
+**************
+prysm.emva1288
+**************
+
+.. automodule:: prysm.emva1288
+    :members:
+
+Example
+-------
+
+.. code-block:: python
+
+    import numpy as np
+    from prysm.emva1288 import (
+        EMVA1288Params,
+        simulate_emva_sequence,
+        estimate_emva1288,
+        make_emva1288_plots,
+    )
+
+    params = EMVA1288Params(
+        qe=0.6,
+        dark_current_e_s=0.2,
+        read_noise_e=2.1,
+        conversion_gain_e_per_dn=0.8,
+        bit_depth=12,
+        full_well_e=25000,
+        prnu_std=0.01,
+        dsnu_e=1.5,
+    )
+    photons = np.linspace(10, 3000, 20)
+    exposure_s = np.full_like(photons, 0.01)
+    dataset = simulate_emva_sequence(params, photons, exposure_s, frames=32, shape=(128, 128), seed=1)
+    results = estimate_emva1288(dataset, params)
+    plot_data = make_emva1288_plots(results)
+

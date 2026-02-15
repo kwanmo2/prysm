@@ -12,6 +12,7 @@ API Reference
    coordinates
    degredations
    detector
+   emva1288
    fttools
    geometry
    interferogram
