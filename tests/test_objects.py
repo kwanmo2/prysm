@@ -63,3 +63,12 @@ def test_pinhole_ft_functional(rt):
 def test_slit_ft_functional(xy, wx, wy):
     r, _ = xy
     assert objects.slit_ft(wx, wy, *xy).any()
+
+
+def test_usaf1951():
+    pytest.importorskip('PIL')
+    target = objects.usaf1951(128)
+    assert target.shape == (128, 128)
+    assert target.max() <= 1
+    assert target.min() >= 0
+    assert target.any()

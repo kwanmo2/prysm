@@ -1,8 +1,139 @@
 """Objects for image simulation with."""
 
+import re
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
 from .conf import config
 from .mathops import np, jinc
 from .coordinates import optimize_xy_separable
+
+
+_MATRIX_RE = re.compile(r'matrix\(([^)]*)\)')
+_TRANSLATE_RE = re.compile(r'translate\(([^)]*)\)')
+
+
+def _parse_float_list(txt):
+    return [float(x) for x in re.split(r'[,\s]+', txt.strip()) if x]
+
+
+def _transform_matrix(transform_text):
+    mat = np.eye(3, dtype=float)
+    if not transform_text:
+        return mat
+
+    m = _MATRIX_RE.search(transform_text)
+    if m is not None:
+        vals = _parse_float_list(m.group(1))
+        if len(vals) == 6:
+            a, b, c, d, e, f = vals
+            m2 = np.asarray([[a, c, e], [b, d, f], [0, 0, 1]], dtype=float)
+            mat = m2 @ mat
+
+    t = _TRANSLATE_RE.search(transform_text)
+    if t is not None:
+        vals = _parse_float_list(t.group(1))
+        tx = vals[0] if len(vals) > 0 else 0.0
+        ty = vals[1] if len(vals) > 1 else 0.0
+        t2 = np.asarray([[1, 0, tx], [0, 1, ty], [0, 0, 1]], dtype=float)
+        mat = t2 @ mat
+
+    return mat
+
+
+def _svg_len_to_float(s):
+    if s is None:
+        return 0.0
+    m = re.match(r'([-+]?\d*\.?\d+)', str(s))
+    return float(m.group(1)) if m else 0.0
+
+
+def _style_fill(style_txt):
+    if not style_txt:
+        return None
+    for item in style_txt.split(';'):
+        if ':' not in item:
+            continue
+        k, v = item.split(':', 1)
+        if k.strip() == 'fill':
+            return v.strip().lower()
+    return None
+
+
+def _is_black_fill(elem):
+    fill = (elem.attrib.get('fill') or _style_fill(elem.attrib.get('style')) or '').lower()
+    return fill in ('#000', '#000000', 'black', 'rgb(0,0,0)')
+
+
+def _iter_svg_rects(node, parent_mat):
+    node_mat = _transform_matrix(node.attrib.get('transform'))
+    cur = parent_mat @ node_mat
+
+    tag = node.tag.rsplit('}', 1)[-1].lower()
+    if tag == 'rect' and _is_black_fill(node):
+        x = _svg_len_to_float(node.attrib.get('x', 0))
+        y = _svg_len_to_float(node.attrib.get('y', 0))
+        w = _svg_len_to_float(node.attrib.get('width', 0))
+        h = _svg_len_to_float(node.attrib.get('height', 0))
+        if w > 0 and h > 0:
+            corners = np.asarray(
+                [[x, y, 1], [x + w, y, 1], [x + w, y + h, 1], [x, y + h, 1]],
+                dtype=float,
+            )
+            pts = (cur @ corners.T).T[:, :2]
+            yield pts
+
+    for child in list(node):
+        yield from _iter_svg_rects(child, cur)
+
+
+def usaf1951(samples, svg_path=None):
+    """Rasterize the bundled USAF1951 SVG test target.
+
+    Parameters
+    ----------
+    samples : int
+        width/height of output square array
+    svg_path : str or Path, optional
+        path to an alternate USAF1951 SVG; defaults to prysm's bundled asset
+
+    Returns
+    -------
+    ndarray
+        2D float array in [0, 1], with bright bars on dark background
+
+    """
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError as exc:
+        raise ImportError('Pillow is required for objects.usaf1951') from exc
+
+    if svg_path is None:
+        svg_path = Path(__file__).resolve().parents[1] / 'assets' / 'USAF1951.svg'
+    else:
+        svg_path = Path(svg_path)
+
+    root = ET.parse(svg_path).getroot()
+    w = _svg_len_to_float(root.attrib.get('width', 256))
+    h = _svg_len_to_float(root.attrib.get('height', 256))
+
+    scale = min(samples / max(w, 1e-9), samples / max(h, 1e-9))
+    offx = 0.5 * (samples - scale * w)
+    offy = 0.5 * (samples - scale * h)
+
+    img = Image.new('L', (samples, samples), color=255)
+    draw = ImageDraw.Draw(img)
+
+    for poly in _iter_svg_rects(root, np.eye(3, dtype=float)):
+        pix = []
+        for x, y in poly:
+            xp = offx + x * scale
+            yp = offy + y * scale
+            pix.append((float(xp), float(yp)))
+        draw.polygon(pix, fill=0)
+
+    arr = np.asarray(img, dtype=float) / 255.0
+    return 1.0 - arr
 
 
 def slit(x, y, width_x, width_y=None):

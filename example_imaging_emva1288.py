@@ -5,7 +5,7 @@ from prysm.coordinates import make_xy_grid, cart_to_polar
 from prysm.geometry import circle
 from prysm.polynomials import zernike_nm
 from prysm.propagation import focus
-from prysm.objects import siemensstar
+from prysm.objects import usaf1951
 from prysm.convolution import conv
 from prysm.emva1288 import (
     EMVA1288Params,
@@ -30,9 +30,7 @@ def build_optical_image(samples=256, q=2):
     psf = abs(focus(wf, Q=q)) ** 2
     psf = psf / psf.sum()
 
-    tx, ty = make_xy_grid(psf.shape[0], diameter=2)
-    tr, tt = cart_to_polar(tx, ty)
-    target = siemensstar(tr, tt, spokes=36, oradius=0.9, background='black', contrast=0.9)
+    target = usaf1951(samples=psf.shape[0])
 
     blurred = conv(target, psf)
     blurred = np.clip(blurred, 0, None)
@@ -103,6 +101,9 @@ def main():
     np.save('emva_noisy_stack_dn.npy', noisy_stack)
     np.save('emva_dark_stack_dn.npy', dark_stack)
 
+    final_noisy_frame = noisy_stack[0]
+    mean_noisy_frame = noisy_stack.astype(float).mean(axis=0)
+
     print('Saved files:')
     print('  emva_target.npy')
     print('  emva_psf.npy')
@@ -120,6 +121,10 @@ def main():
 
     try:
         import matplotlib.pyplot as plt
+
+        dn_max = (2 ** params.bit_depth) - 1
+        plt.imsave('emva_noisy_frame0.png', final_noisy_frame, cmap='gray', vmin=0, vmax=dn_max)
+        plt.imsave('emva_noisy_mean.png', mean_noisy_frame, cmap='gray', vmin=0, vmax=dn_max)
 
         fig, axes = plt.subplots(2, 3, figsize=(12, 8))
         axes[0, 0].imshow(target, cmap='gray')
@@ -144,6 +149,8 @@ def main():
 
         plt.tight_layout()
         plt.savefig('example_imaging_emva1288_result.png', dpi=150)
+        print('Saved image: emva_noisy_frame0.png')
+        print('Saved image: emva_noisy_mean.png')
         print('Saved figure: example_imaging_emva1288_result.png')
     except ImportError:
         print('matplotlib not installed; skipped figure rendering.')
@@ -151,4 +158,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
